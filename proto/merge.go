@@ -15,14 +15,20 @@ import (
 //
 // Populated scalar fields in src are copied to dst, while populated
 // singular messages in src are merged into dst by recursively calling Merge.
-// The elements of every list field in src is appended to the corresponded
+// The elements of every list field in src is appended to the corresponding
 // list fields in dst. The entries of every map field in src is copied into
 // the corresponding map field in dst, possibly replacing existing entries.
 // The unknown fields of src are appended to the unknown fields of dst.
 //
 // It is semantically equivalent to unmarshaling the encoded form of src
-// into dst with the [UnmarshalOptions.Merge] option specified.
+// into dst with the UnmarshalOptions.Merge option specified.
 func Merge(dst, src Message) {
+	MergeWithOptions(dst, src, MergeOptions{})
+}
+
+// MergeWithOptions is like Merge, but provides fine-grained control on the
+// behaviour of merging repeated and map fields.
+func MergeWithOptions(dst, src Message, opts MergeOptions) {
 	// TODO: Should nil src be treated as semantically equivalent to a
 	// untyped, read-only, empty message? What about a nil dst?
 
@@ -33,7 +39,7 @@ func Merge(dst, src Message) {
 		}
 		panic("descriptor mismatch")
 	}
-	mergeOptions{}.mergeMessage(dstMsg, srcMsg)
+	opts.mergeMessage(dstMsg, srcMsg)
 }
 
 // Clone returns a deep copy of m.
@@ -55,17 +61,28 @@ func Clone(m Message) Message {
 		return src.Type().Zero().Interface()
 	}
 	dst := src.New()
-	mergeOptions{}.mergeMessage(dst, src)
+	MergeOptions{}.mergeMessage(dst, src)
 	return dst.Interface()
 }
 
-// mergeOptions provides a namespace for merge functions, and can be
-// exported in the future if we add user-visible merge options.
-type mergeOptions struct{}
+// MergeOptions provides user-visible merge options.
+type MergeOptions struct {
+	// If set to true, every populated list field in src replaces the
+	// corresponding list field in dst. Otherwise, the elements of every list
+	// field in src is appended to the corresponding list fields in dst.
+	ReplaceRepeatedFields bool
 
-func (o mergeOptions) mergeMessage(dst, src protoreflect.Message) {
+	// If set to true, every populated map field in src replaces the corresponding
+	// map field in dst. Otherwise, the entries of every map field in src is
+	// copied into the corresponding map field in dst, possibly replacing existing
+	// entries.
+	ReplaceMapFields bool
+}
+
+func (o MergeOptions) mergeMessage(dst, src protoreflect.Message) {
 	methods := protoMethods(dst)
-	if methods != nil && methods.Merge != nil {
+	// TODO: Implement fast-path merge when options are present.
+	if methods != nil && methods.Merge != nil && o == (MergeOptions{}) {
 		in := protoiface.MergeInput{
 			Destination: dst,
 			Source:      src,
@@ -101,8 +118,11 @@ func (o mergeOptions) mergeMessage(dst, src protoreflect.Message) {
 	}
 }
 
-func (o mergeOptions) mergeList(dst, src protoreflect.List, fd protoreflect.FieldDescriptor) {
-	// Merge semantics appends to the end of the existing list.
+func (o MergeOptions) mergeList(dst, src protoreflect.List, fd protoreflect.FieldDescriptor) {
+	if o.ReplaceRepeatedFields {
+		dst.Truncate(0)
+	}
+	// Default merge semantics appends to the end of the existing list.
 	for i, n := 0, src.Len(); i < n; i++ {
 		switch v := src.Get(i); {
 		case fd.Message() != nil:
@@ -117,8 +137,14 @@ func (o mergeOptions) mergeList(dst, src protoreflect.List, fd protoreflect.Fiel
 	}
 }
 
-func (o mergeOptions) mergeMap(dst, src protoreflect.Map, fd protoreflect.FieldDescriptor) {
-	// Merge semantics replaces, rather than merges into existing entries.
+func (o MergeOptions) mergeMap(dst, src protoreflect.Map, fd protoreflect.FieldDescriptor) {
+	if o.ReplaceMapFields {
+		dst.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
+			dst.Clear(k)
+			return true
+		})
+	}
+	// Default merge semantics replaces, rather than merges into existing entries.
 	src.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
 		switch {
 		case fd.Message() != nil:
@@ -134,6 +160,6 @@ func (o mergeOptions) mergeMap(dst, src protoreflect.Map, fd protoreflect.FieldD
 	})
 }
 
-func (o mergeOptions) cloneBytes(v protoreflect.Value) protoreflect.Value {
+func (o MergeOptions) cloneBytes(v protoreflect.Value) protoreflect.Value {
 	return protoreflect.ValueOfBytes(append([]byte{}, v.Bytes()...))
 }

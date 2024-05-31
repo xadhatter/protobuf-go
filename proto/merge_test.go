@@ -31,6 +31,7 @@ type testMerge struct {
 	src   protobuild.Message
 	want  protobuild.Message // if dst and want are nil, want = src
 	types []proto.Message
+	opts  proto.MergeOptions
 }
 
 var testMerges = []testMerge{{
@@ -641,6 +642,202 @@ func TestMerge(t *testing.T) {
 				proto.Merge(dst, src)
 				if !proto.Equal(dst, want) {
 					t.Fatalf("Merge() mismatch:\n got %v\nwant %v\ndiff (-want,+got):\n%v", dst, want, cmp.Diff(want, dst, protocmp.Transform()))
+				}
+				mutateValue(protoreflect.ValueOfMessage(src.ProtoReflect()))
+				if !proto.Equal(dst, want) {
+					t.Fatalf("mutation observed after modifying source:\n got %v\nwant %v\ndiff (-want,+got):\n%v", dst, want, cmp.Diff(want, dst, protocmp.Transform()))
+				}
+			})
+		}
+	}
+}
+
+func TestMergeWithOptions(t *testing.T) {
+	tests := []testMerge{
+		{
+			desc: "merge list fields with replacement",
+			dst: protobuild.Message{
+				"repeated_int32":       []int32{1, 2, 3},
+				"repeated_int64":       []int64{1, 2, 3},
+				"repeated_uint32":      []uint32{1, 2, 3},
+				"repeated_uint64":      []uint64{1, 2, 3},
+				"repeated_sint32":      []int32{1, 2, 3},
+				"repeated_sint64":      []int64{1, 2, 3},
+				"repeated_fixed32":     []uint32{1, 2, 3},
+				"repeated_fixed64":     []uint64{1, 2, 3},
+				"repeated_sfixed32":    []int32{1, 2, 3},
+				"repeated_sfixed64":    []int64{1, 2, 3},
+				"repeated_float":       []float32{1, 2, 3},
+				"repeated_double":      []float64{1, 2, 3},
+				"repeated_bool":        []bool{true},
+				"repeated_string":      []string{"a", "b", "c"},
+				"repeated_bytes":       []string{"a", "b", "c"},
+				"repeated_nested_enum": []int{1, 2, 3},
+				"repeated_nested_message": []protobuild.Message{
+					{"a": 100},
+					{"a": 200},
+				},
+			},
+			src: protobuild.Message{
+				"repeated_int32":       []int32{4, 5, 6},
+				"repeated_int64":       []int64{4, 5, 6},
+				"repeated_uint32":      []uint32{4, 5, 6},
+				"repeated_uint64":      []uint64{4, 5, 6},
+				"repeated_sint32":      []int32{4, 5, 6},
+				"repeated_sint64":      []int64{4, 5, 6},
+				"repeated_fixed32":     []uint32{4, 5, 6},
+				"repeated_fixed64":     []uint64{4, 5, 6},
+				"repeated_sfixed32":    []int32{4, 5, 6},
+				"repeated_sfixed64":    []int64{4, 5, 6},
+				"repeated_float":       []float32{4, 5, 6},
+				"repeated_double":      []float64{4, 5, 6},
+				"repeated_bool":        []bool{false},
+				"repeated_string":      []string{"d", "e", "f"},
+				"repeated_bytes":       []string{"d", "e", "f"},
+				"repeated_nested_enum": []int{4, 5, 6},
+				"repeated_nested_message": []protobuild.Message{
+					{"a": 300},
+					{"a": 400},
+				},
+			},
+			want: protobuild.Message{
+				"repeated_int32":       []int32{4, 5, 6},
+				"repeated_int64":       []int64{4, 5, 6},
+				"repeated_uint32":      []uint32{4, 5, 6},
+				"repeated_uint64":      []uint64{4, 5, 6},
+				"repeated_sint32":      []int32{4, 5, 6},
+				"repeated_sint64":      []int64{4, 5, 6},
+				"repeated_fixed32":     []uint32{4, 5, 6},
+				"repeated_fixed64":     []uint64{4, 5, 6},
+				"repeated_sfixed32":    []int32{4, 5, 6},
+				"repeated_sfixed64":    []int64{4, 5, 6},
+				"repeated_float":       []float32{4, 5, 6},
+				"repeated_double":      []float64{4, 5, 6},
+				"repeated_bool":        []bool{false},
+				"repeated_string":      []string{"d", "e", "f"},
+				"repeated_bytes":       []string{"d", "e", "f"},
+				"repeated_nested_enum": []int{4, 5, 6},
+				"repeated_nested_message": []protobuild.Message{
+					{"a": 300},
+					{"a": 400},
+				},
+			},
+			opts: proto.MergeOptions{ReplaceRepeatedFields: true},
+		}, {
+			desc: "merge map fields with replacement",
+			dst: protobuild.Message{
+				"map_int32_int32":       map[int]int{1: 1, 3: 1},
+				"map_int64_int64":       map[int]int{1: 1, 3: 1},
+				"map_uint32_uint32":     map[int]int{1: 1, 3: 1},
+				"map_uint64_uint64":     map[int]int{1: 1, 3: 1},
+				"map_sint32_sint32":     map[int]int{1: 1, 3: 1},
+				"map_sint64_sint64":     map[int]int{1: 1, 3: 1},
+				"map_fixed32_fixed32":   map[int]int{1: 1, 3: 1},
+				"map_fixed64_fixed64":   map[int]int{1: 1, 3: 1},
+				"map_sfixed32_sfixed32": map[int]int{1: 1, 3: 1},
+				"map_sfixed64_sfixed64": map[int]int{1: 1, 3: 1},
+				"map_int32_float":       map[int]int{1: 1, 3: 1},
+				"map_int32_double":      map[int]int{1: 1, 3: 1},
+				"map_bool_bool":         map[bool]bool{true: true},
+				"map_string_string":     map[string]string{"a": "1", "ab": "1"},
+				"map_string_bytes":      map[string]string{"a": "1", "ab": "1"},
+				"map_string_nested_message": map[string]protobuild.Message{
+					"a": {"a": 1},
+					"ab": {
+						"a": 1,
+						"corecursive": protobuild.Message{
+							"map_int32_int32": map[int]int{1: 1, 3: 1},
+						},
+					},
+				},
+				"map_string_nested_enum": map[string]int{"a": 1, "ab": 1},
+			},
+			src: protobuild.Message{
+				"map_int32_int32":       map[int]int{2: 2, 3: 2},
+				"map_int64_int64":       map[int]int{2: 2, 3: 2},
+				"map_uint32_uint32":     map[int]int{2: 2, 3: 2},
+				"map_uint64_uint64":     map[int]int{2: 2, 3: 2},
+				"map_sint32_sint32":     map[int]int{2: 2, 3: 2},
+				"map_sint64_sint64":     map[int]int{2: 2, 3: 2},
+				"map_fixed32_fixed32":   map[int]int{2: 2, 3: 2},
+				"map_fixed64_fixed64":   map[int]int{2: 2, 3: 2},
+				"map_sfixed32_sfixed32": map[int]int{2: 2, 3: 2},
+				"map_sfixed64_sfixed64": map[int]int{2: 2, 3: 2},
+				"map_int32_float":       map[int]int{2: 2, 3: 2},
+				"map_int32_double":      map[int]int{2: 2, 3: 2},
+				"map_bool_bool":         map[bool]bool{false: false},
+				"map_string_string":     map[string]string{"b": "2", "ab": "2"},
+				"map_string_bytes":      map[string]string{"b": "2", "ab": "2"},
+				"map_string_nested_message": map[string]protobuild.Message{
+					"b": {"a": 2},
+					"ab": {
+						"a": 2,
+						"corecursive": protobuild.Message{
+							"map_int32_int32": map[int]int{2: 2, 3: 2},
+						},
+					},
+				},
+				"map_string_nested_enum": map[string]int{"b": 2, "ab": 2},
+			},
+			want: protobuild.Message{
+				"map_int32_int32":       map[int]int{2: 2, 3: 2},
+				"map_int64_int64":       map[int]int{2: 2, 3: 2},
+				"map_uint32_uint32":     map[int]int{2: 2, 3: 2},
+				"map_uint64_uint64":     map[int]int{2: 2, 3: 2},
+				"map_sint32_sint32":     map[int]int{2: 2, 3: 2},
+				"map_sint64_sint64":     map[int]int{2: 2, 3: 2},
+				"map_fixed32_fixed32":   map[int]int{2: 2, 3: 2},
+				"map_fixed64_fixed64":   map[int]int{2: 2, 3: 2},
+				"map_sfixed32_sfixed32": map[int]int{2: 2, 3: 2},
+				"map_sfixed64_sfixed64": map[int]int{2: 2, 3: 2},
+				"map_int32_float":       map[int]int{2: 2, 3: 2},
+				"map_int32_double":      map[int]int{2: 2, 3: 2},
+				"map_bool_bool":         map[bool]bool{false: false},
+				"map_string_string":     map[string]string{"b": "2", "ab": "2"},
+				"map_string_bytes":      map[string]string{"b": "2", "ab": "2"},
+				"map_string_nested_message": map[string]protobuild.Message{
+					"b": {"a": 2},
+					"ab": {
+						"a": 2,
+						"corecursive": protobuild.Message{
+							"map_int32_int32": map[int]int{2: 2, 3: 2},
+						},
+					},
+				},
+				"map_string_nested_enum": map[string]int{"b": 2, "ab": 2},
+			},
+			types: []proto.Message{&testpb.TestAllTypes{}, &test3pb.TestAllTypes{}},
+			opts:  proto.MergeOptions{ReplaceMapFields: true},
+		},
+	}
+	for _, tt := range tests {
+		for _, mt := range templateMessages(tt.types...) {
+			t.Run(fmt.Sprintf("%s (%v)", tt.desc, mt.Descriptor().FullName()), func(t *testing.T) {
+				dst := mt.New().Interface()
+				tt.dst.Build(dst.ProtoReflect())
+
+				src := mt.New().Interface()
+				tt.src.Build(src.ProtoReflect())
+
+				want := mt.New().Interface()
+				if tt.dst == nil && tt.want == nil {
+					tt.src.Build(want.ProtoReflect())
+				} else {
+					tt.want.Build(want.ProtoReflect())
+				}
+
+				// Test heterogeneous MessageTypes by merging into a
+				// dynamic message.
+				ddst := dynamicpb.NewMessage(mt.Descriptor())
+				tt.dst.Build(ddst.ProtoReflect())
+				proto.MergeWithOptions(ddst, src, tt.opts)
+				if !proto.Equal(ddst, want) {
+					t.Fatalf("MergeWithOptions() into dynamic message mismatch:\n got %v\nwant %v\ndiff (-want,+got):\n%v", ddst, want, cmp.Diff(want, ddst, protocmp.Transform()))
+				}
+
+				proto.MergeWithOptions(dst, src, tt.opts)
+				if !proto.Equal(dst, want) {
+					t.Fatalf("MergeWithOptions() mismatch:\n got %v\nwant %v\ndiff (-want,+got):\n%v", dst, want, cmp.Diff(want, dst, protocmp.Transform()))
 				}
 				mutateValue(protoreflect.ValueOfMessage(src.ProtoReflect()))
 				if !proto.Equal(dst, want) {
